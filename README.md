@@ -5,6 +5,273 @@
 <script src="https://liberapay.com/GitDigital_liberapay/widgets/button.js"></script>
 <noscript><a href="https://liberapay.com/GitDigital_liberapay/donate"><img alt="Donate using Liberapay" src="https://liberapay.com/assets/widgets/donate.svg"></a></noscript>
 
+
+Aurora zk‑Cryptography Framework
+
+Zero‑Knowledge Trust, Verification, and Compliance for Solana & GitDigital
+
+Aurora is a deterministic, multi‑layer zero‑knowledge trust framework designed for high‑throughput Solana applications and the GitDigital ecosystem.  
+It provides:
+
+- ZK proof generation & verification  
+- Off‑chain risk evaluation  
+- Signed attestations  
+- On‑chain compliance registry updates  
+- WASM‑compatible SDK for browser, mobile, and server  
+- A secure, auditable trust pipeline  
+
+Aurora is built for privacy‑preserving identity, compliance, and trust automation across decentralized systems.
+
+---
+
+Architecture Overview
+
+Aurora is composed of four independently testable, audit‑ready layers:
+
+1. Client Layer (SDK + WASM)  
+2. Off‑Chain Verification Daemon  
+3. Solana On‑Chain Programs  
+4. Ecosystem Integrations (GitDigital, wallets, exchanges, dApps)
+
+---
+
+High‑Level Architecture
+
+`
+Client → SDK → Proof → Daemon → Verification → Risk Engine → Attestation → Solana Program → Registry Update
+`
+
+---
+
+Component Diagram
+
+`mermaid
+flowchart LR
+    
+    subgraph Client
+        P[Proof Generator]
+        S[SDK]
+        W[Wallet]
+    end
+    
+    subgraph OffChain
+        G[API Gateway]
+        Q[Queue]
+        V[Verifier]
+        R[Risk Engine]
+        K[Attestation Key]
+    end
+    
+    subgraph OnChain
+        O[Aurora Program]
+        C[Compliance Registry]
+    end
+    
+    P --> S
+    S --> W
+    S --> G
+    G --> Q
+    Q --> V
+    V --> R
+    V --> K
+    K --> O
+    R --> O
+    O --> C
+`
+
+---
+
+Features
+
+Zero‑Knowledge Proof Verification
+- Deterministic verification pipeline  
+- Canonical proof format  
+- Circuit versioning & metadata  
+
+Risk Engine
+- Deterministic scoring  
+- Behavioral analysis  
+- Threshold‑based gating  
+- Optional device/IP correlation  
+
+Attestation System
+- Signed attestations with expiry, nonce, epoch  
+- On‑chain signature verification  
+- Replay protection  
+
+Compliance Registry
+- PDA‑derived identity binding  
+- Idempotent updates  
+- Full auditability  
+
+SDK (TS + WASM)
+- Browser, mobile, server support  
+- Wallet‑based signing  
+- Type‑safe bindings  
+
+---
+
+End‑to‑End Proof Flow
+
+`mermaid
+sequenceDiagram
+    participant U as User / Wallet
+    participant S as Aurora SDK
+    participant D as Verification Daemon
+    participant R as Risk Engine
+    participant P as Solana Program
+    participant C as Compliance Registry
+    
+    U->>S: Generate ZK proof
+    S->>U: Request wallet signature
+    U->>S: Signed payload
+    S->>D: Submit proof + signature
+    D->>D: Validate schema + signature
+    D->>R: Evaluate risk
+    R-->>D: risk_score
+    D->>D: Verify ZK proof
+    D->>D: Create attestation
+    D->>P: Submit attestation on-chain
+    P->>P: Verify signature + freshness
+    P->>C: Update registry
+    P-->>D: Success
+    D-->>S: Result
+    S-->>U: Final status
+`
+
+---
+
+Security Model
+
+Aurora enforces four core invariants:
+
+1. No registry update occurs without a valid, non‑expired attestation.  
+2. No attestation is produced without a verified proof + acceptable risk score.  
+3. Each (subject, proof_id) pair is idempotent and replay‑safe.  
+4. All state transitions are fully auditable.
+
+Threat Classes
+- Malicious prover  
+- Replay attacker  
+- Sybil attacker  
+- Daemon compromise  
+- Network attacker  
+- Malicious Solana program  
+
+Controls
+- Wallet‑signed submissions  
+- TLS everywhere  
+- Deterministic verification  
+- Risk gating  
+- Attestation key isolation  
+- On‑chain signature + freshness checks  
+- Config immutability / governance  
+
+For full details, see:  
+Security Model
+
+---
+
+Installation & Usage
+
+SDK Installation
+
+`bash
+npm install @aurora/sdk
+`
+
+Basic Example
+
+`ts
+import { AuroraClient } from "@aurora/sdk";
+
+const client = new AuroraClient();
+
+const proof = await client.generateProof(userData);
+const signature = await client.signProof(proof);
+
+const result = await client.submitProof({
+  proof,
+  signature,
+  subject: wallet.publicKey,
+});
+
+console.log(result);
+`
+
+---
+
+Repository Structure
+
+`
+.
+├── sdk/                     # TypeScript + WASM SDK
+├── daemon/                  # Off-chain verification daemon
+│   ├── queue/               # Proof ingestion + batching
+│   ├── verification/        # ZK verification workers
+│   ├── risk/                # Risk engine
+│   └── attestation/         # Attestation signing
+├── programs/                # Solana on-chain programs
+│   ├── compliance-registry/
+│   └── common/
+├── tests/                   # E2E + integration tests
+├── docs/                    # Architecture, security, workflows
+└── scripts/                 # Deployment + environment helpers
+`
+
+---
+
+Roadmap
+
+Aurora’s roadmap is structured across three layers: protocol, platform, ecosystem.
+
+Q2 2026
+- Circuit consolidation  
+- Daemon v2 (parallel queues)  
+- WASM performance pass  
+- GitDigital identity binding v1  
+
+Q3 2026
+- Multi‑proof aggregation  
+- Risk Engine v2  
+- Governance‑controlled circuit upgrades  
+- Exchange‑grade workflows  
+
+Q4 2026
+- zk‑Compression integration  
+- Multi‑chain verification  
+- Enterprise compliance module  
+- Multi‑daemon quorum mode  
+
+Full roadmap:  
+Aurora Roadmap
+
+---
+
+Contributing
+
+Aurora uses a strict, audit‑ready contribution model:
+
+- PR‑based workflow  
+- Mandatory CI (lint, typecheck, build, CodeQL)  
+- Semantic versioning  
+- Module‑level maintainers  
+- Release candidates + audits  
+
+---
+
+License
+
+MIT License — see LICENSE for details.
+
+---
+
+Maintainers
+
+Aurora is maintained by the GitDigital Solana Team and the Human Stability Network.
+
+---
+
 BADGE WALL (ASCII BLOCK)
                     buymeacoffee.com/RickCreator87                
 `
