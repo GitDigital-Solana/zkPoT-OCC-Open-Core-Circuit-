@@ -3,3 +3,18 @@ github: [Gitdigital-products]
 patreon: gitdigital
 ko_fi: gitdigital
 custom: ["https://solscan.io/account/YOUR_SOLANA_WALLET_ADDRESS"] 
+# Supported funding model platforms
+
+# Use your Open Collective slug (e.g., gitdigital-solana)
+open_collective: gitdigital-solana
+
+# If you accept direct sponsorships on GitHub
+github: RickCreator87
+
+# If you use other platforms like BuyMeACoffee or Ko-fi
+# ko_fi: your_account_name
+# buy_me_a_coffee: your_account_name
+
+# If you have a custom donation page for the Solana ecosystem
+custom:
+  - https://gitdigital.solana.io/donate
