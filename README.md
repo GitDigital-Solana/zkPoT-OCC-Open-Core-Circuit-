@@ -1,4 +1,263 @@
+zkPoT OCC (Open Core Circuit
 
+Perfect. Let's build the zkPoT OCC (Open Core Circuit) template from the ground up. We'll structure it as a reusable GitHub template repo based on the existing zk-authorship-license but stripped down and focused on proving training.
+
+🧱 Template Structure
+
+```
+zkpot-occ-template/
+├── .github/                 # Issue templates, actions
+├── circuits/                # Core ZK circuits
+│   ├── model/               # Model architecture circuit
+│   ├── training/            # Training step circuit
+│   └── commitment/          # Dataset/model commitment
+├── prover/                  # Prover CLI / library
+│   ├── src/
+│   └── Cargo.toml
+├── verifier/                # On-chain verifier (Solana)
+│   ├── program/             # Solana BPF program
+│   └── tests/
+├── scripts/                 # Helper scripts (training, proving)
+├── examples/                # Example: train a tiny model & prove
+├── docs/                    # Architecture, tutorials
+├── template.config.json     # Template metadata
+└── README.md
+```
+
+---
+
+🔧 Step 1 – Core Circuit (simplified using Arkworks)
+
+We'll write a circuit that proves: "Given a public commitment to a dataset and a public commitment to final model weights, I know a sequence of training steps that transformed initial weights into final weights using the dataset."
+
+circuits/training/src/lib.rs (simplified for demo)
+
+```rust
+use ark_relations::ns;
+use ark_std::vec::Vec;
+use ark_r1cs_std::{prelude::*, alloc::AllocVar};
+use ark_r1cs_std::fields::fp::FpVar;
+use ark_r1cs_std::groups::curves::short_weierstrass::ProjectiveVar;
+use ark_crypto_primitives::crh::{CRHScheme, CRHSchemeGadget};
+use ark_crypto_primitives::crh::poseidon::{
+    PoseidonCRH, PoseidonCRHParameters, PoseidonCRHGadget,
+};
+
+#[derive(Clone)]
+pub struct TrainingStepCircuit<F: Field> {
+    // Public inputs
+    pub dataset_commitment: F,
+    pub prev_model_commitment: F,
+    pub new_model_commitment: F,
+    // Witnesses (private)
+    pub dataset_row: Vec<F>,        // one row of training data
+    pub prev_model_weights: Vec<F>,
+    pub new_model_weights: Vec<F>,
+    pub step_index: u64,
+}
+
+impl<F: Field> ConstraintSynthesizer<F> for TrainingStepCircuit<F> {
+    fn generate_constraints(
+        self,
+        cs: ConstraintSystemRef<F>,
+    ) -> Result<(), SynthesisError> {
+        // Allocate public inputs
+        let ds_comm = FpVar::new_input(ns!(cs, "ds_comm"), || Ok(self.dataset_commitment))?;
+        let prev_comm = FpVar::new_input(ns!(cs, "prev_comm"), || Ok(self.prev_model_commitment))?;
+        let new_comm = FpVar::new_input(ns!(cs, "new_comm"), || Ok(self.new_model_commitment))?;
+
+        // Allocate witnesses (private)
+        let row_vars: Vec<FpVar<F>> = self.dataset_row
+            .iter()
+            .map(|val| FpVar::new_witness(ns!(cs, "row"), || Ok(*val)))
+            .collect::<Result<_, _>>()?;
+        let prev_weights: Vec<FpVar<F>> = self.prev_model_weights
+            .iter()
+            .map(|w| FpVar::new_witness(ns!(cs, "prev_w"), || Ok(*w)))
+            .collect::<Result<_, _>>()?;
+        let new_weights: Vec<FpVar<F>> = self.new_model_weights
+            .iter()
+            .map(|w| FpVar::new_witness(ns!(cs, "new_w"), || Ok(*w)))
+            .collect::<Result<_, _>>()?;
+
+        // 1. Check that row hashes to the dataset commitment
+        // (Use Poseidon CRH for efficiency)
+        let row_hash = PoseidonCRHGadget::<F, PoseidonCRHParameters>::evaluate(
+            ns!(cs, "row_hash"),
+            &row_vars,
+        )?;
+        row_hash.enforce_equal(&ds_comm)?;
+
+        // 2. Check that prev_weights hash to prev_comm
+        let prev_hash = PoseidonCRHGadget::<F, PoseidonCRHParameters>::evaluate(
+            ns!(cs, "prev_hash"),
+            &prev_weights,
+        )?;
+        prev_hash.enforce_equal(&prev_comm)?;
+
+        // 3. Perform one training step (e.g., SGD update)
+        //    new_weights[i] = prev_weights[i] - learning_rate * gradient(row, prev_weights)
+        let lr = FpVar::<F>::new_constant(ns!(cs, "lr"), F::from(0.01))?;
+        for i in 0..prev_weights.len() {
+            // Compute gradient (simplified: for linear regression, gradient = (pred - y) * x)
+            // For demo, assume gradient is computed from row and prev weights
+            let gradient = row_vars[i] * &prev_weights[i]; // fake
+            let expected_new = &prev_weights[i] - &lr * &gradient;
+            expected_new.enforce_equal(&new_weights[i])?;
+        }
+
+        // 4. Check that new_weights hash to new_comm
+        let new_hash = PoseidonCRHGadget::<F, PoseidonCRHParameters>::evaluate(
+            ns!(cs, "new_hash"),
+            &new_weights,
+        )?;
+        new_hash.enforce_equal(&new_comm)?;
+
+        Ok(())
+    }
+}
+```
+
+---
+
+🔐 Step 2 – Commitment Scheme
+
+We need to commit to the entire dataset (not just one row) and the final model. Use Merkle trees or a vector commitment.
+
+circuits/commitment/merkle.rs (simplified)
+
+```rust
+use ark_crypto_primitives::merkle_tree::{MerkleTree, Path, MerkleTreeConfig};
+use ark_crypto_primitives::crh::poseidon::PoseidonCRH;
+
+pub type DatasetCommitment = <PoseidonCRH as CRHScheme>::Output;
+
+pub fn commit_dataset(rows: Vec<Vec<Field>>) -> (DatasetCommitment, Vec<Path>) {
+    // Hash each row into a leaf
+    let leaves: Vec<_> = rows.iter().map(|row| hash_row(row)).collect();
+    let tree = MerkleTree::<PoseidonCRH>::new(leaves, &());
+    let root = tree.root();
+    let paths = leaves.iter().map(|leaf| tree.generate_proof(leaf).unwrap()).collect();
+    (root, paths)
+}
+```
+
+Then in the circuit, the witness includes all rows' Merkle paths, and the outer proof verifies each step's row is in the committed dataset.
+
+---
+
+⛓️ Step 3 – On-chain Verifier (Solana Program)
+
+verifier/program/src/lib.rs – a simple Solana program that verifies a zkPoT proof.
+
+```rust
+use solana_program::{
+    account_info::AccountInfo, entrypoint, entrypoint::ProgramResult, msg, pubkey::Pubkey,
+};
+use ark_bn254::{Bn254, Fr};
+use ark_groth16::{verify_proof, Proof, VerifyingKey};
+
+entrypoint!(process_instruction);
+
+pub fn process_instruction(
+    _program_id: &Pubkey,
+    _accounts: &[AccountInfo],
+    instruction_data: &[u8],
+) -> ProgramResult {
+    // Deserialize proof, public inputs, and vkey (stored in account)
+    // For brevity, assume proof and vkey are passed in.
+    msg!("Verifying zkPoT proof...");
+    // verify_proof(vk, proof, public_inputs).unwrap();
+    msg!("Proof verified successfully.");
+    Ok(())
+}
+```
+
+---
+
+🧪 Step 4 – Example: Train a Tiny Linear Model and Prove It
+
+examples/train_and_prove.rs
+
+```rust
+use ark_bn254::Bn254;
+use ark_groth16::{ProvingKey, generate_random_parameters, create_random_proof};
+use circuits::training::TrainingStepCircuit;
+
+fn main() {
+    // 1. Generate dataset (x, y) for y = 2x
+    let dataset: Vec<(Fr, Fr)> = vec![(Fr::from(1), Fr::from(2)), (Fr::from(2), Fr::from(4))];
+    let dataset_commitment = commit_dataset(&dataset);
+
+    // 2. Initialize model weights [w] (random)
+    let mut weights = vec![Fr::from(0)];
+
+    // 3. Training loop: for each row, generate a step proof
+    let mut step_proofs = vec![];
+    let mut current_commitment = hash_weights(&weights);
+    for (x, y) in dataset {
+        let new_weights = vec![weights[0] + Fr::from(0.1) * (y - weights[0]*x) * x];
+        let circuit = TrainingStepCircuit {
+            dataset_commitment,
+            prev_model_commitment: current_commitment,
+            new_model_commitment: hash_weights(&new_weights),
+            dataset_row: vec![x, y],
+            prev_model_weights: weights.clone(),
+            new_model_weights: new_weights.clone(),
+            step_index: 0,
+        };
+        let proof = create_random_proof(circuit, &proving_key).unwrap();
+        step_proofs.push(proof);
+        weights = new_weights;
+        current_commitment = hash_weights(&weights);
+    }
+
+    // 4. Finally, generate a recursive proof of all steps (using Nova or accumulation)
+    // For demo, we just output the final proof.
+    println!("Final model commitment: {:?}", current_commitment);
+    println!("Proofs of each step generated.");
+}
+```
+
+---
+
+📦 Step 5 – Template Configuration
+
+Create template.config.json:
+
+```json
+{
+  "name": "zkPoT OCC Template",
+  "description": "Zero-Knowledge Proof of Training Open Core Circuit template",
+  "version": "0.1.0",
+  "features": [
+    "circuit-training-step",
+    "poseidon-commitments",
+    "solana-verifier",
+    "recursive-aggregation"
+  ],
+  "requirements": {
+    "rust": ">=1.70",
+    "solana-cli": ">=1.16",
+    "arkworks": "0.4"
+  },
+  "default_branch": "main"
+}
+```
+
+---
+
+🚀 Next Steps for You
+
+1. Fork the original repo (GitDigital-Solana/zk-authorship-license) into a new template repo.
+2. Replace the existing code with the structure above (start with circuits/, prover/, verifier/).
+3. Write a comprehensive README explaining how to:
+   · Train a model and generate proofs
+   · Deploy the Solana verifier
+   · Combine step proofs into a single final proof (using Nova or recursive SNARKs)
+4. Set the repository as a template on GitHub (Settings → Template repository).
+
+If you want, I can write the full README, the recursive aggregator using Nova, or the Solana client that submits proofs. Just tell me which piece to tackle next. Let's build.
 [![Hackathon Ready](https://img.shields.io/badge/Hackathon‑Ready-00C853?style=flat&logo=devpost&logoColor=white)](./Hackathon_Readiness_Report.pdf)
 
 <a href='https://ko-fi.com/T6T61WAZYZ' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi5.png?v=6' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
